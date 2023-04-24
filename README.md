@@ -2,6 +2,8 @@
 
 Group name: Fly by Night
 
+Final project for deep learning course
+
 ## Official implementation of the experiments in the [DetectGPT paper](https://arxiv.org/abs/2301.11305v1).
 
 An interactive demo of DetectGPT can be found [here](https://detectgpt.ericmitchell.ai).
