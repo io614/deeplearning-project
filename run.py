@@ -777,7 +777,7 @@ if __name__ == '__main__':
     parser.add_argument('--pre_perturb_span_length', type=int, default=5)
     parser.add_argument('--random_fills', action='store_true')
     parser.add_argument('--random_fills_tokens', action='store_true')
-    parser.add_argument('--cache_dir', type=str, default="~/.cache")
+    parser.add_argument('--cache_dir', type=str, default=".cache")
     args = parser.parse_args()
 
     API_TOKEN_COUNTER = 0
