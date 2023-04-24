@@ -1,4 +1,6 @@
-# DetectGPT: Zero-Shot Machine-Generated Text Detection using Probability Curvature
+# DetectGPT
+
+Group name: Fly by Night
 
 ## Official implementation of the experiments in the [DetectGPT paper](https://arxiv.org/abs/2301.11305v1).
 
