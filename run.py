@@ -490,7 +490,7 @@ def run_perturbation_experiment(results, criterion, span_length=10, n_perturbati
     p, r, pr_auc = get_precision_recall_metrics(predictions['real'], predictions['samples'])
     name = f'perturbation_{n_perturbations}_{criterion}'
     print(f"{name} ROC AUC: {roc_auc}, PR AUC: {pr_auc}")
-    return {
+    results_dict = {
         'name': name,
         'predictions': predictions,
         'info': {
@@ -499,7 +499,6 @@ def run_perturbation_experiment(results, criterion, span_length=10, n_perturbati
             'n_perturbations': n_perturbations,
             'n_samples': n_samples,
         },
-        'raw_results': results,
         'metrics': {
             'roc_auc': roc_auc,
             'fpr': fpr,
@@ -513,6 +512,10 @@ def run_perturbation_experiment(results, criterion, span_length=10, n_perturbati
         'loss': 1 - pr_auc,
     }
 
+    if args.raw_results:
+        results_dict["raw_results"] = results
+
+    return results_dict
 
 def run_baseline_threshold_experiment(criterion_fn, name, n_samples=500):
     torch.manual_seed(0)
@@ -778,6 +781,8 @@ if __name__ == '__main__':
     parser.add_argument('--random_fills', action='store_true')
     parser.add_argument('--random_fills_tokens', action='store_true')
     parser.add_argument('--cache_dir', type=str, default=".cache")
+    parser.add_argument('--raw_results', action='store_true')
+    parser.add_argument('--save_plots', action='store_true')
     args = parser.parse_args()
 
     API_TOKEN_COUNTER = 0
@@ -859,7 +864,7 @@ if __name__ == '__main__':
                 FILL_DICTIONARY.update(text.split())
         FILL_DICTIONARY = sorted(list(FILL_DICTIONARY))
 
-    if args.scoring_model_name:
+    if args.scoring_model_name and (args.scoring_model_name != args.base_model_name):
         print(f'Loading SCORING model {args.scoring_model_name}...')
         del base_model
         del base_tokenizer
@@ -926,9 +931,10 @@ if __name__ == '__main__':
 
         outputs += baseline_outputs
 
-    save_roc_curves(outputs)
-    save_ll_histograms(outputs)
-    save_llr_histograms(outputs)
+    if args.save_plots:
+        save_roc_curves(outputs)
+        save_ll_histograms(outputs)
+        save_llr_histograms(outputs)
 
     # move results folder from tmp_results/ to results/, making sure necessary directories exist
     new_folder = SAVE_FOLDER.replace("tmp_results", "results")
