@@ -42,12 +42,14 @@ def get_pred_df(base_model, drop_scoring_base=False, dataset="xsum", pred_type="
     For a given base model, return a DataFrame containing d/z scores from different scoring models, and y-label (0=real, 1=sampled)
     """
 
-    path="d_path" if (pred_type=="d") else "z_path"
+    path_key="d_path" if (pred_type=="d") else "z_path"
 
     config_dicts=get_config_dicts()
-    config_dicts_base = [config_dict for config_dict in config_dicts if (config_dict["base_model"]==base_model and config_dicts["dataset"]==dataset)]
+    config_dicts_base = [config_dict for config_dict in config_dicts if (config_dict["base_model"]==base_model and config_dict["dataset"]==dataset)]
 
-    results_dicts = [{"scoring_model": d["scoring_model"],"path": d[path], } for d in config_dicts_base]
+    assert len(config_dicts_base) > 0, "No configs found"
+
+    results_dicts = [{"scoring_model": d["scoring_model"],"path": d[path_key], } for d in config_dicts_base]
 
     def get_xy_from_json(results_json_path):
 
@@ -85,7 +87,8 @@ def get_auc_single(pred_type="z"):
     """
 
     config_dicts = get_config_dicts()
-    path="d_path" if (pred_type=="d") else "z_path"
-    auc_dicts = [{"base_model":d["base_model"], "scoring_model":d["scoring_model"], "dataset":d["dataset"], "auc": get_results_json(d[path])["metrics"]["roc_auc"]} for d in config_dicts]
+    df = pd.DataFrame(config_dicts)
+    path_col="d_path" if (pred_type=="d") else "z_path"
+    df["auc"] = df[path_col].apply(lambda path: get_results_json(path)["metrics"]["roc_auc"])
         
-    return pd.DataFrame(auc_dicts)
+    return df[["base_model", "scoring_model", "dataset", "auc"]]
