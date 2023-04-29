@@ -1,6 +1,6 @@
 #!/bin/bash
 
-base_models=("gpt2" "gpt2-medium" "EleutherAI/gpt-neo-125m")
+base_models=("bert-base-cased" "roberta-base" "gpt2-medium" "EleutherAI/gpt-neo-125m")
 mask_model=t5-base
 datasets=("xsum")
 n_perturbation_list=50 
