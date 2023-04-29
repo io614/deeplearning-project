@@ -163,6 +163,5 @@ try.sh
 
 # Data dirs
 tmp_results/
-results/
 .cache/
 \~/
