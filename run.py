@@ -16,6 +16,7 @@ import functools
 import custom_datasets
 from multiprocessing.pool import ThreadPool
 import time
+import pdb
 
 
 
@@ -448,8 +449,10 @@ def get_perturbation_results(span_length=10, n_perturbations=1, n_samples=500):
             "perturbed_original": p_original_text[idx * n_perturbations: (idx + 1) * n_perturbations]
         })
 
-    load_base_model()
+    return results
 
+def augment_perturbation_results(results):
+    load_base_model()
     for res in tqdm.tqdm(results, desc="Computing log likelihoods"):
         p_sampled_ll = get_lls(res["perturbed_sampled"])
         p_original_ll = get_lls(res["perturbed_original"])
@@ -461,9 +464,7 @@ def get_perturbation_results(span_length=10, n_perturbations=1, n_samples=500):
         res["perturbed_original_ll"] = np.mean(p_original_ll)
         res["perturbed_sampled_ll_std"] = np.std(p_sampled_ll) if len(p_sampled_ll) > 1 else 1
         res["perturbed_original_ll_std"] = np.std(p_original_ll) if len(p_original_ll) > 1 else 1
-
     return results
-
 
 def run_perturbation_experiment(results, criterion, span_length=10, n_perturbations=1, n_samples=500):
     # compute diffs with perturbed
@@ -668,7 +669,6 @@ def generate_data(dataset, key):
 
 def load_base_model_and_tokenizer(name):
     if args.openai_model is None:
-        print(f'Loading BASE model {args.base_model_name}...')
         base_model_kwargs = {}
         if 'gpt-j' in name or 'neox' in name:
             base_model_kwargs.update(dict(torch_dtype=torch.float16))
@@ -757,7 +757,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_perturbation_list', type=str, default="1,10")
     parser.add_argument('--n_perturbation_rounds', type=int, default=1)
     parser.add_argument('--base_model_name', type=str, default="gpt2-medium")
-    parser.add_argument('--scoring_model_name', type=str, default="")
+    parser.add_argument('--scoring_model_list', type=str, default="")
     parser.add_argument('--mask_filling_model_name', type=str, default="t5-large")
     parser.add_argument('--batch_size', type=int, default=50)
     parser.add_argument('--chunk_size', type=int, default=20)
@@ -795,24 +795,6 @@ if __name__ == '__main__':
     START_DATE = datetime.datetime.now().strftime('%Y-%m-%d')
     START_TIME = datetime.datetime.now().strftime('%H-%M-%S-%f')
 
-    # define SAVE_FOLDER as the timestamp - base model name - mask filling model name
-    # create it if it doesn't exist
-    precision_string = "int8" if args.int8 else ("fp16" if args.half else "fp32")
-    sampling_string = "top_k" if args.do_top_k else ("top_p" if args.do_top_p else "temp")
-    output_subfolder = f"{args.output_name}/" if args.output_name else ""
-    if args.openai_model is None:
-        base_model_name = args.base_model_name.replace('/', '-')
-    else:
-        base_model_name = "openai-" + args.openai_model.replace('/', '-')
-    scoring_model_string = (f"_{args.scoring_model_name}" if args.scoring_model_name else "").replace('/', '-')
-    SAVE_FOLDER = f"tmp_results/{output_subfolder}{base_model_name}{scoring_model_string}_{args.mask_filling_model_name}_{args.dataset}_{sampling_string}/{START_DATE}-{START_TIME}"
-    if not os.path.exists(SAVE_FOLDER):
-        os.makedirs(SAVE_FOLDER)
-    print(f"Saving results to absolute path: {os.path.abspath(SAVE_FOLDER)}")
-
-    # write args to file
-    with open(os.path.join(SAVE_FOLDER, "args.json"), "w") as f:
-        json.dump(args.__dict__, f, indent=4)
 
     mask_filling_model_name = args.mask_filling_model_name
     n_samples = args.n_samples
@@ -820,6 +802,7 @@ if __name__ == '__main__':
     n_perturbation_list = [int(x) for x in args.n_perturbation_list.split(",")]
     n_perturbation_rounds = args.n_perturbation_rounds
     n_similarity_samples = args.n_similarity_samples
+
 
     cache_dir = args.cache_dir
     os.environ["XDG_CACHE_HOME"] = cache_dir
@@ -831,6 +814,7 @@ if __name__ == '__main__':
 
     # generic generative model
     base_model, base_tokenizer = load_base_model_and_tokenizer(args.base_model_name)
+    print(f"BASE model: {args.base_model_name}")
 
     # mask filling t5 model
     if not args.baselines_only and not args.random_fills:
@@ -864,82 +848,108 @@ if __name__ == '__main__':
                 FILL_DICTIONARY.update(text.split())
         FILL_DICTIONARY = sorted(list(FILL_DICTIONARY))
 
-    if args.scoring_model_name and (args.scoring_model_name != args.base_model_name):
-        print(f'Loading SCORING model {args.scoring_model_name}...')
+    perturbation_results_dict = {n:get_perturbation_results(args.span_length, n, n_samples) for n in n_perturbation_list}
+
+    if args.scoring_model_list == "":
+        scoring_models = [args.base_model_name]
+    else:
+        scoring_models = [x for x in args.scoring_model_list.split(",")]
+
+    for scoring_model in scoring_models:
+        # define SAVE_FOLDER as the timestamp - base model name - mask filling model name
+        # create it if it doesn't exist
+        precision_string = "int8" if args.int8 else ("fp16" if args.half else "fp32")
+        sampling_string = "top_k" if args.do_top_k else ("top_p" if args.do_top_p else "temp")
+        output_subfolder = f"{args.output_name}/" if args.output_name else ""
+        if args.openai_model is None:
+            base_model_name = args.base_model_name.replace('/', '-')
+        else:
+            base_model_name = "openai-" + args.openai_model.replace('/', '-')
+        scoring_model_string = (f"_{scoring_model}").replace('/', '-')
+        SAVE_FOLDER = f"tmp_results/{output_subfolder}{base_model_name}{scoring_model_string}_{args.mask_filling_model_name}_{args.dataset}_{sampling_string}/{START_DATE}-{START_TIME}"
+        if not os.path.exists(SAVE_FOLDER):
+            os.makedirs(SAVE_FOLDER)
+        print(f"Saving results to absolute path: {os.path.abspath(SAVE_FOLDER)}")
+
+        # write args to file
+        with open(os.path.join(SAVE_FOLDER, "args.json"), "w") as f:
+            json.dump(args.__dict__, f, indent=4)
+
+        print(f'Loading SCORING model {scoring_model}...')
         del base_model
         del base_tokenizer
         torch.cuda.empty_cache()
-        base_model, base_tokenizer = load_base_model_and_tokenizer(args.scoring_model_name)
+        base_model, base_tokenizer = load_base_model_and_tokenizer(scoring_model)
         load_base_model()  # Load again because we've deleted/replaced the old model
 
-    # write the data to a json file in the save folder
-    with open(os.path.join(SAVE_FOLDER, "raw_data.json"), "w") as f:
-        print(f"Writing raw data to {os.path.join(SAVE_FOLDER, 'raw_data.json')}")
-        json.dump(data, f)
+        # write the data to a json file in the save folder
+        with open(os.path.join(SAVE_FOLDER, "raw_data.json"), "w") as f:
+            print(f"Writing raw data to {os.path.join(SAVE_FOLDER, 'raw_data.json')}")
+            json.dump(data, f)
 
-    if not args.skip_baselines:
-        baseline_outputs = [run_baseline_threshold_experiment(get_ll, "likelihood", n_samples=n_samples)]
-        if args.openai_model is None:
-            rank_criterion = lambda text: -get_rank(text, log=False)
-            baseline_outputs.append(run_baseline_threshold_experiment(rank_criterion, "rank", n_samples=n_samples))
-            logrank_criterion = lambda text: -get_rank(text, log=True)
-            baseline_outputs.append(run_baseline_threshold_experiment(logrank_criterion, "log_rank", n_samples=n_samples))
-            entropy_criterion = lambda text: get_entropy(text)
-            baseline_outputs.append(run_baseline_threshold_experiment(entropy_criterion, "entropy", n_samples=n_samples))
+        if not args.skip_baselines:
+            baseline_outputs = [run_baseline_threshold_experiment(get_ll, "likelihood", n_samples=n_samples)]
+            if args.openai_model is None:
+                rank_criterion = lambda text: -get_rank(text, log=False)
+                baseline_outputs.append(run_baseline_threshold_experiment(rank_criterion, "rank", n_samples=n_samples))
+                logrank_criterion = lambda text: -get_rank(text, log=True)
+                baseline_outputs.append(run_baseline_threshold_experiment(logrank_criterion, "log_rank", n_samples=n_samples))
+                entropy_criterion = lambda text: get_entropy(text)
+                baseline_outputs.append(run_baseline_threshold_experiment(entropy_criterion, "entropy", n_samples=n_samples))
 
-        baseline_outputs.append(eval_supervised(data, model='roberta-base-openai-detector'))
-        baseline_outputs.append(eval_supervised(data, model='roberta-large-openai-detector'))
+            baseline_outputs.append(eval_supervised(data, model='roberta-base-openai-detector'))
+            baseline_outputs.append(eval_supervised(data, model='roberta-large-openai-detector'))
 
-    outputs = []
+        outputs = []
 
-    if not args.baselines_only:
-        # run perturbation experiments
-        for n_perturbations in n_perturbation_list:
-            perturbation_results = get_perturbation_results(args.span_length, n_perturbations, n_samples)
-            for perturbation_mode in ['d', 'z']:
-                output = run_perturbation_experiment(
-                    perturbation_results, perturbation_mode, span_length=args.span_length, n_perturbations=n_perturbations, n_samples=n_samples)
-                outputs.append(output)
-                with open(os.path.join(SAVE_FOLDER, f"perturbation_{n_perturbations}_{perturbation_mode}_results.json"), "w") as f:
-                    json.dump(output, f)
+        if not args.baselines_only:
+            # run perturbation experiments
+            for n_perturbations in n_perturbation_list:
+                perturbation_results = augment_perturbation_results(perturbation_results_dict[n_perturbations])
+                for perturbation_mode in ['d', 'z']:
+                    output = run_perturbation_experiment(
+                        perturbation_results, perturbation_mode, span_length=args.span_length, n_perturbations=n_perturbations, n_samples=n_samples)
+                    outputs.append(output)
+                    with open(os.path.join(SAVE_FOLDER, f"perturbation_{n_perturbations}_{perturbation_mode}_results.json"), "w") as f:
+                        json.dump(output, f)
 
-    if not args.skip_baselines:
-        # write likelihood threshold results to a file
-        with open(os.path.join(SAVE_FOLDER, f"likelihood_threshold_results.json"), "w") as f:
-            json.dump(baseline_outputs[0], f)
+        if not args.skip_baselines:
+            # write likelihood threshold results to a file
+            with open(os.path.join(SAVE_FOLDER, f"likelihood_threshold_results.json"), "w") as f:
+                json.dump(baseline_outputs[0], f)
 
-        if args.openai_model is None:
-            # write rank threshold results to a file
-            with open(os.path.join(SAVE_FOLDER, f"rank_threshold_results.json"), "w") as f:
-                json.dump(baseline_outputs[1], f)
+            if args.openai_model is None:
+                # write rank threshold results to a file
+                with open(os.path.join(SAVE_FOLDER, f"rank_threshold_results.json"), "w") as f:
+                    json.dump(baseline_outputs[1], f)
 
-            # write log rank threshold results to a file
-            with open(os.path.join(SAVE_FOLDER, f"logrank_threshold_results.json"), "w") as f:
-                json.dump(baseline_outputs[2], f)
+                # write log rank threshold results to a file
+                with open(os.path.join(SAVE_FOLDER, f"logrank_threshold_results.json"), "w") as f:
+                    json.dump(baseline_outputs[2], f)
 
-            # write entropy threshold results to a file
-            with open(os.path.join(SAVE_FOLDER, f"entropy_threshold_results.json"), "w") as f:
-                json.dump(baseline_outputs[3], f)
-        
-        # write supervised results to a file
-        with open(os.path.join(SAVE_FOLDER, f"roberta-base-openai-detector_results.json"), "w") as f:
-            json.dump(baseline_outputs[-2], f)
-        
-        # write supervised results to a file
-        with open(os.path.join(SAVE_FOLDER, f"roberta-large-openai-detector_results.json"), "w") as f:
-            json.dump(baseline_outputs[-1], f)
+                # write entropy threshold results to a file
+                with open(os.path.join(SAVE_FOLDER, f"entropy_threshold_results.json"), "w") as f:
+                    json.dump(baseline_outputs[3], f)
+            
+            # write supervised results to a file
+            with open(os.path.join(SAVE_FOLDER, f"roberta-base-openai-detector_results.json"), "w") as f:
+                json.dump(baseline_outputs[-2], f)
+            
+            # write supervised results to a file
+            with open(os.path.join(SAVE_FOLDER, f"roberta-large-openai-detector_results.json"), "w") as f:
+                json.dump(baseline_outputs[-1], f)
 
-        outputs += baseline_outputs
+            outputs += baseline_outputs
 
-    if args.save_plots:
-        save_roc_curves(outputs)
-        save_ll_histograms(outputs)
-        save_llr_histograms(outputs)
+        if args.save_plots:
+            save_roc_curves(outputs)
+            save_ll_histograms(outputs)
+            save_llr_histograms(outputs)
 
-    # move results folder from tmp_results/ to results/, making sure necessary directories exist
-    new_folder = SAVE_FOLDER.replace("tmp_results", "results")
-    if not os.path.exists(os.path.dirname(new_folder)):
-        os.makedirs(os.path.dirname(new_folder))
-    os.rename(SAVE_FOLDER, new_folder)
+        # move results folder from tmp_results/ to results/, making sure necessary directories exist
+        new_folder = SAVE_FOLDER.replace("tmp_results", "results")
+        if not os.path.exists(os.path.dirname(new_folder)):
+            os.makedirs(os.path.dirname(new_folder))
+        os.rename(SAVE_FOLDER, new_folder)
 
     print(f"Used an *estimated* {API_TOKEN_COUNTER} API tokens (may be inaccurate)")
